@@ -1,9 +1,14 @@
-const fs = require('node:fs');
+const puppeteer = require("puppeteer")
 
-const apiKey = "dab13563fbaccb57e9b1a5fc81deb61f253d60495a31e1e367df982e98870ae4"
 
-const scraperHeaders = {
-    Authorization: `Bearer ${apiKey}`,
+
+// const apiKey = "dab13563fbaccb57e9b1a5fc81deb61f253d60495a31e1e367df982e98870ae4"
+const username = "artem_scraper_FlqCF"
+const password = "uygF84m_c8pe"
+const apiKey = Buffer.from(`${username}:${password}`).toString("base64")
+
+const oxylabsHeaders = {
+    Authorization: `Basic ${apiKey}`,
     "content-type": "application/json"
 }
 
@@ -44,57 +49,43 @@ async function askChatGPT(question, sourceText) {
 
 async function createJob(websiteUrl) {
     const body = {
-        urls: [
-            websiteUrl
-        ],
-        exclude_globs: [],
-        exclude_elements: "",
-        output_format: "text",
-        output_expiry: 604800,
-        min_length: 0,
-        page_limit: 10_000,
-        block_resources: false,
-        include_linked_files: true
+        "url": websiteUrl,//"https://amazon.com",
+        "filters": {
+            "crawl": [".*"],
+            "process": [".*"],
+            "max_depth": 5
+        },
+        "scrape_params": {
+            "source": "universal",
+            "user_agent_type": "desktop",
+            render: "html"
+        },
+        "output": {
+            "type_": "sitemap"
+        }
     }
 
-    const resp = await fetch("https://api.usescraper.com/crawler/jobs", {
+    const resp = await fetch("https://ect.oxylabs.io/v1/jobs", {
         method: "POST",
         body: JSON.stringify(body),
-        headers: scraperHeaders
+        headers: oxylabsHeaders
     })
 
     const json = await resp.json()
     jobId.current = json.id
 
-    console.log("Created a job: ", json)
-
-    // {
-    //     "id": "7YEGS3M8Q2JD6TNMEJB8B6EKVS",
-    //     "urls": [
-    //         "https://example.com"
-    //     ],
-    //     "createdAt": 1699964378397,
-    //     "status": "starting",
-    //     "sitemapPageCount": 0,
-    //     "progress": {
-    //         "scraped": 0,
-    //         "discarded": 0,
-    //         "failed": 0
-    //     },
-    //     "costCents": 0,
-    //     "webhookFails": []
-    // }
-
+    console.log("Created a job: ", json, JSON.stringify(json))
 }
 
 async function getJob(id) {
     try {
 
-        const resp = await fetch(`https://api.usescraper.com/crawler/jobs/${id}`, {
-            headers: scraperHeaders,
+        const resp = await fetch(`https://ect.oxylabs.io/v1/jobs/${id}`, {
+            headers: oxylabsHeaders,
         })
 
         const json = await resp.json()
+        console.log(json)
         return json
     }
     catch (e) {
@@ -103,30 +94,33 @@ async function getJob(id) {
 
 }
 
+
+
 async function onScraped(jobId) {
-    try {
-        const scrapedDataResp = await fetch(`https://api.usescraper.com/crawler/jobs/${jobId}/data`, {
-            headers: scraperHeaders
-        })
+    const sitemap = await getSitemap(jobId)
 
-        const scrapedText = await scrapedDataResp.text()
-        
-        // const scrapedData = scrapedText
-        
-        // console.log("Got scraped pages: ", scrapedData.data.length)
-
-        fs.writeFileSync('./data.txt', scrapedText);
-        // file written successfully
-    } catch (err) {
-        console.error(err);
-        onScraped(jobId)
-        return
-    }
+    await getWebsitePages(sitemap)
 
 }
 
+async function getSitemap(jobId) {
+    const resp = await fetch(`https://ect.oxylabs.io/v1/jobs/${jobId}/sitemap`, {
+        headers: {
+            Authorization: `Basic ${apiKey}`,
+            "content-type": "application/json"
+        }
+    })
+
+    const result = await resp.json()
+    const sitemap = result.results?.[0]?.sitemap
+
+    console.log(sitemap)
+
+    return sitemap
+}
+
 async function init() {
-    const websiteUrl = "https://jestjs.io/"//"https://artem-zankovskiy.netlify.app/"//"https://www.polito.it/"//"https://nodejs.org/"//"https://usescraper.com"
+    const websiteUrl = "https://artem-zankovskiy.netlify.app/"//"https://nodejs.org/en"//"https://usescraper.com"
 
     await createJob(websiteUrl)
 
@@ -136,23 +130,14 @@ async function init() {
             return
         }
 
-        // starting, running, succeeded, failed, cancelled 
-        const status = job.status
+        const events = job.events
 
-        console.log(status)
+        console.log("Events: ", events)
 
-        switch (status) {
-            case "succeeded":
-            case "failed":
-            case "cancelled": {
-                onScraped(jobId.current)
-                clearInterval(interval)
-                return
-            }
-            case "running": {
-                console.log(job.progress)
-                break;
-            }
+        if (events.some(event => event.event === "job_results_aggregated" && event.status === "done")) {
+            onScraped(jobId.current)
+            clearInterval(interval)
+            return
         }
     }, 10_000)
 }
