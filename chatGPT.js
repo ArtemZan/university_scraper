@@ -1,4 +1,4 @@
-const chatGPTKey = "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"
+const chatGPTKey = process.env.CHAT_GPT_KEY
 
 
 async function askChatGPT(question, sourceText, format) {
