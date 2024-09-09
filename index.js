@@ -2,13 +2,44 @@ const fs = require('node:fs');
 
 const apiKey = "dab13563fbaccb57e9b1a5fc81deb61f253d60495a31e1e367df982e98870ae4"
 
-const headers = {
+const scraperHeaders = {
     Authorization: `Bearer ${apiKey}`,
     "content-type": "application/json"
 }
 
 const jobId = {
     current: null
+}
+
+async function askChatGPT(question, sourceText) {
+    const message = `
+        ${question}
+        Answer that question using the information from the following text:
+        ${sourceText}
+    `
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${openaiToken}`
+        },
+        body: JSON.stringify({
+            model: "gpt-4o",
+            messages: [
+                {
+                    role: "user",
+                    content: message
+                }
+            ]
+        })
+    })
+
+    const json = await response.json()
+
+    console.log(json)
+
+    return json.choices[0]
 }
 
 async function createJob(websiteUrl) {
@@ -29,7 +60,7 @@ async function createJob(websiteUrl) {
     const resp = await fetch("https://api.usescraper.com/crawler/jobs", {
         method: "POST",
         body: JSON.stringify(body),
-        headers
+        headers: scraperHeaders
     })
 
     const json = await resp.json()
@@ -60,7 +91,7 @@ async function getJob(id) {
     try {
 
         const resp = await fetch(`https://api.usescraper.com/crawler/jobs/${id}`, {
-            headers
+            headers: scraperHeaders,
         })
 
         const json = await resp.json()
@@ -73,25 +104,29 @@ async function getJob(id) {
 }
 
 async function onScraped(jobId) {
-    const scrapedDataResp = await fetch(`https://api.usescraper.com/crawler/jobs/${jobId}/data`, {
-        headers
-    })
-
-    const scrapedData = await scrapedDataResp.json()
-
-    console.log("Got scraped pages: ", scrapedData.data.length)
-
     try {
-        fs.writeFileSync('./data.txt', JSON.stringify(scrapedData));
+        const scrapedDataResp = await fetch(`https://api.usescraper.com/crawler/jobs/${jobId}/data`, {
+            headers: scraperHeaders
+        })
+
+        const scrapedText = await scrapedDataResp.text()
+        
+        // const scrapedData = scrapedText
+        
+        // console.log("Got scraped pages: ", scrapedData.data.length)
+
+        fs.writeFileSync('./data.txt', scrapedText);
         // file written successfully
     } catch (err) {
         console.error(err);
+        onScraped(jobId)
+        return
     }
 
 }
 
 async function init() {
-    const websiteUrl = "https://nodejs.org/"//"https://usescraper.com"
+    const websiteUrl = "https://jestjs.io/"//"https://artem-zankovskiy.netlify.app/"//"https://www.polito.it/"//"https://nodejs.org/"//"https://usescraper.com"
 
     await createJob(websiteUrl)
 
