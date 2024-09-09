@@ -1,6 +1,3 @@
-// const chatGPTKey = "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"
-
-
 async function askChatGPT(question, sourceText, format) {
     const message = `
         ${question}
