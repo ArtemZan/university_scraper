@@ -1,74 +1,125 @@
-const puppeteer = require("puppeteer")
-const {getWebsitePages} = require("./getPages")
+const fs = require('node:fs');
 
-const platforms = [
-    "Android", "Chrome OS", "Chromium OS", "iOS", "Linux", "macOS", "Windows", "Unknown"
-]
+const apiKey = "dab13563fbaccb57e9b1a5fc81deb61f253d60495a31e1e367df982e98870ae4"
 
-// async function getWebsitePages(url) {
-//     const platform = platforms[Math.round(Math.random() * platforms.length - 1)]
+const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    "content-type": "application/json"
+}
 
-//     const resp = await fetch(`https://www.xml-sitemaps.com/icrawl.php?op=crawlproc&initurl=${encodeURI(url)}&lastmod=on&priority=on&freq=&&injs=1`, {
-//         "headers": {
-//             "accept": "*/*",
-//             "accept-language": "en-US,en;q=0.9,bg;q=0.8,uk;q=0.7,de;q=0.6,fr;q=0.5",
-//             "sec-ch-ua": "\"Chromium\";v=\"128\", \"Not;A=Brand\";v=\"24\", \"Google Chrome\";v=\"128\"",
-//             "sec-ch-ua-mobile": "?0",
-//             "sec-ch-ua-platform": platform,
-//             "sec-fetch-dest": "empty",
-//             "sec-fetch-mode": "cors",
-//             "sec-fetch-site": "same-origin",
-//             "x-requested-with": "XMLHttpRequest"
-//         },
-//         "referrer": "https://www.xml-sitemaps.com/",
-//         "referrerPolicy": "strict-origin-when-cross-origin",
-//         "body": null,
-//         "method": "GET",
-//         "mode": "cors",
-//         "credentials": "include"
-//     })
+const jobId = {
+    current: null
+}
 
-//     const text = await resp.text()
-
-//     console.log(text)
-
-//     const items = text.split("\n").filter(item => item.trim())
-
-//     const json = JSON.parse("[" + items.join(", ") + "]")
-
-//     return json
-// }
-
-
-async function init() {
-    const browser = await puppeteer.launch()
-    const page = await browser.newPage()
-
-    const urls = await getWebsitePages("https://www.polito.it/")//("http://localhost:3000/")//("https://reklamni-materiali.com/")//("https://toscrape.com/")//("https://www.polito.it/en")
-
-    console.log(urls, JSON.stringify(urls))
-
-    return
-
-    for(const url of urls) {
-        console.log("Checking out url: ", decodeURI(url))
-        await page.goto(url)
-        const extractedText = await page.$eval('*', (el) => {
-            const selection = window.getSelection();
-            const range = document.createRange();
-            range.selectNode(el);
-            selection.removeAllRanges();
-            selection.addRange(range);
-            return window.getSelection().toString();
-        });
-
-        console.log("\n\n\n\n========================== EXTRACTED TEXT ===============================\n\n\n\n", extractedText, "\n\n\n\n==============================================================\n\n\n\n")
-        
+async function createJob(websiteUrl) {
+    const body = {
+        urls: [
+            websiteUrl
+        ],
+        exclude_globs: [],
+        exclude_elements: "",
+        output_format: "text",
+        output_expiry: 604800,
+        min_length: 0,
+        page_limit: 10_000,
+        block_resources: false,
+        include_linked_files: true
     }
 
-    console.log("That was it")
+    const resp = await fetch("https://api.usescraper.com/crawler/jobs", {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers
+    })
 
+    const json = await resp.json()
+    jobId.current = json.id
 
+    console.log("Created a job: ", json)
+
+    // {
+    //     "id": "7YEGS3M8Q2JD6TNMEJB8B6EKVS",
+    //     "urls": [
+    //         "https://example.com"
+    //     ],
+    //     "createdAt": 1699964378397,
+    //     "status": "starting",
+    //     "sitemapPageCount": 0,
+    //     "progress": {
+    //         "scraped": 0,
+    //         "discarded": 0,
+    //         "failed": 0
+    //     },
+    //     "costCents": 0,
+    //     "webhookFails": []
+    // }
+
+}
+
+async function getJob(id) {
+    try {
+
+        const resp = await fetch(`https://api.usescraper.com/crawler/jobs/${id}`, {
+            headers
+        })
+
+        const json = await resp.json()
+        return json
+    }
+    catch (e) {
+        console.log(e)
+    }
+
+}
+
+async function onScraped(jobId) {
+    const scrapedDataResp = await fetch(`https://api.usescraper.com/crawler/jobs/${jobId}/data`, {
+        headers
+    })
+
+    const scrapedData = await scrapedDataResp.json()
+
+    console.log("Got scraped pages: ", scrapedData.data.length)
+
+    try {
+        fs.writeFileSync('./data.txt', JSON.stringify(scrapedData));
+        // file written successfully
+    } catch (err) {
+        console.error(err);
+    }
+
+}
+
+async function init() {
+    const websiteUrl = "https://nodejs.org/"//"https://usescraper.com"
+
+    await createJob(websiteUrl)
+
+    const interval = setInterval(async () => {
+        const job = await getJob(jobId.current)
+        if (!job) {
+            return
+        }
+
+        // starting, running, succeeded, failed, cancelled 
+        const status = job.status
+
+        console.log(status)
+
+        switch (status) {
+            case "succeeded":
+            case "failed":
+            case "cancelled": {
+                onScraped(jobId.current)
+                clearInterval(interval)
+                return
+            }
+            case "running": {
+                console.log(job.progress)
+                break;
+            }
+        }
+    }, 10_000)
 }
 
 init()
