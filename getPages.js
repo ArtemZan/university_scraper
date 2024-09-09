@@ -5,24 +5,44 @@ const maxThreadsCount = 5
 
 const pagesScraped = []
 
+const failedToScrape = []
+
 const urlsLeft = {
     current: null
 }
 
 async function pageGoTo(page, url) {
-    await page.goto(url, {
-        waitUntil: "networkidle0"
-    })
 
-    const content = await page.content()
+    console.log("Checking out url: ", url)
 
-    pagesScraped.push({
-        url,
-        content
-    })
+    try {
+        await page.goto(url, {
+            waitUntil: "networkidle0"
+        })
+        
+        const extractedText = await page.$eval('*', (el) => {
+            const selection = window.getSelection();
+            const range = document.createRange();
+            range.selectNode(el);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            return window.getSelection().toString();
+        });
+        console.log("From url: ", url, "extractedText length: ", extractedText.length)
 
-    if(urlsLeft.current.length) {
-        await pageGoTo(page, urlsLeft.current.pop())
+        pagesScraped.push({
+            url,
+            content: extractedText
+        })
+    }
+    catch (e) {
+        console.log(e)
+        failedToScrape.push(url)
+    }
+    finally {
+        if (urlsLeft.current.length) {
+            await pageGoTo(page, urlsLeft.current.pop())
+        }
     }
 }
 
@@ -34,12 +54,18 @@ async function getWebsitePages(sitemap) {
 
     await Promise.all(
         new Array(pagesCount)
+            .fill(null, 0, pagesCount)
             .map(() => browser.newPage().then(page => pageGoTo(page, urlsLeft.current.pop())))
     )
 
     console.log("Got all pages!")
 
     fs.writeFileSync("./data.json", JSON.stringify(pagesScraped))
+
+    return {
+        pagesScraped,
+        failedToScrape
+    }
 }
 
 

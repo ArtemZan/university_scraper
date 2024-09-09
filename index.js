@@ -1,5 +1,6 @@
-const puppeteer = require("puppeteer")
-
+const { getWebsitePages } = require("./getPages")
+const { askChatGPT } = require("./chatGPT")
+const fs = require("node:fs")
 
 
 // const apiKey = "dab13563fbaccb57e9b1a5fc81deb61f253d60495a31e1e367df982e98870ae4"
@@ -16,44 +17,13 @@ const jobId = {
     current: null
 }
 
-async function askChatGPT(question, sourceText) {
-    const message = `
-        ${question}
-        Answer that question using the information from the following text:
-        ${sourceText}
-    `
-
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${openaiToken}`
-        },
-        body: JSON.stringify({
-            model: "gpt-4o",
-            messages: [
-                {
-                    role: "user",
-                    content: message
-                }
-            ]
-        })
-    })
-
-    const json = await response.json()
-
-    console.log(json)
-
-    return json.choices[0]
-}
-
 async function createJob(websiteUrl) {
     const body = {
         "url": websiteUrl,//"https://amazon.com",
         "filters": {
-            "crawl": [".*"],
-            "process": [".*"],
-            "max_depth": 5
+            "crawl": [`${websiteUrl}.*`],
+            "process": [`${websiteUrl}.*`],
+            "max_depth": 3
         },
         "scrape_params": {
             "source": "universal",
@@ -94,13 +64,49 @@ async function getJob(id) {
 
 }
 
-
+const questions = [
+    {
+        question: "When does the semester start for local students?",
+        format: "date (dd.mm.yy) or date range (dd.mm.yy - dd.mm.yy)"
+    }
+]
 
 async function onScraped(jobId) {
-    const sitemap = await getSitemap(jobId)
+    // const sitemap = await getSitemap(jobId)
+    // fs.writeFileSync("./sitemap.json", JSON.stringify(sitemap))
 
-    await getWebsitePages(sitemap)
+    // const scrapeResult = await getWebsitePages(sitemap)
 
+    // const pagesContent = scrapeResult.pagesScraped
+    // fs.writeFileSync("./failed.json", JSON.stringify(scrapeResult.failedToScrape))
+
+    const pagesContent = JSON.parse(fs.readFileSync("./data.json").toString("utf8"))
+
+    const answers = []
+
+    for (const question of questions) {
+        let answered
+        for (const page of pagesContent) {
+            const result = await askChatGPT(question.question, page.content, question.format)
+
+            console.log("Answer: ", result.message.content)
+            if (result.message?.content !== "null") {
+                answers.push({
+                    answer: result.message,
+                    url: page.url
+                })
+
+                answered = true
+                break
+            }
+        }
+
+        if (!answered) {
+            answers.push(null)
+        }
+    }
+
+    console.log(answers)
 }
 
 async function getSitemap(jobId) {
@@ -120,7 +126,11 @@ async function getSitemap(jobId) {
 }
 
 async function init() {
-    const websiteUrl = "https://artem-zankovskiy.netlify.app/"//"https://nodejs.org/en"//"https://usescraper.com"
+    const websiteUrl = "https://www.uni-sofia.bg"//"https://artem-zankovskiy.netlify.app"//"https://nodejs.org/en"//"https://usescraper.com"
+
+    onScraped()
+
+    return
 
     await createJob(websiteUrl)
 
